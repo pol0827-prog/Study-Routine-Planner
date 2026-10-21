@@ -1,0 +1,8 @@
+{
+  "name": "mujogeon-oreuneun-routine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "무조건 오르는 루틴 - 고등학생 성적·플래너·타이머·오답노트 앱",
+  "engines": { "node": ">=18" }
+}
