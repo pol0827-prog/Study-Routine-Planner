@@ -261,6 +261,24 @@ tr.click{cursor:pointer} tr.click:hover td{background:var(--blue-soft)}
 .vbanner .btn{color:var(--ink)}
 .foot .wrap{padding-block:18px calc(env(safe-area-inset-bottom,0px) + 22px);text-align:center;font-family:var(--mono);font-size:.75rem;color:var(--muted);letter-spacing:.04em;border-top:1px dashed var(--omr-rule)}
 main.wrap{padding-bottom:40px!important}
+/* 달력 */
+.cal-head{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));font-size:.74rem;color:var(--muted);text-align:center;font-weight:700;padding-bottom:4px}
+.cal-head span:nth-child(6){color:var(--blue)} .cal-head span:nth-child(7){color:var(--omr)}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.cal .c{all:unset;box-sizing:border-box;min-height:92px;padding:4px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:2px;cursor:pointer;min-width:0;background:var(--sheet)}
+.cal .c:hover{background:var(--paper)} .cal .c:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.cal .c.out{opacity:.45} .cal .c.sel{box-shadow:inset 0 0 0 2px var(--blue)}
+.cal .c .n{font-family:var(--mono);font-size:.8rem;width:22px;height:22px;display:grid;place-items:center;border-radius:50%}
+.cal .c.sun .n{color:var(--omr)} .cal .c.sat .n{color:var(--blue)}
+.cal .c.today .n{background:var(--omr);color:#fff}
+.cal .ev{font-size:.68rem;line-height:1.35;border-left:3px solid;padding:0 4px;background:var(--paper);border-radius:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal .ev.done{text-decoration:line-through;opacity:.6}
+.evrow{display:flex;gap:8px;align-items:center;min-width:0}
+.evt{border-left:3px solid;padding:2px 8px;min-width:0;overflow-wrap:anywhere;font-size:.88rem}
+table.t td.range{white-space:pre-wrap;text-align:left;min-width:240px;line-height:1.6;vertical-align:top}
+@media (max-width:600px){.cal .c{min-height:58px}.cal .ev{font-size:0;height:5px;padding:0;border-left:0;border-top:5px solid}}
+.calgrid{grid-template-columns:minmax(0,1fr);align-items:start}
+@media (min-width:980px){.calgrid{grid-template-columns:minmax(0,2fr) minmax(300px,1fr)}}
 @media (max-width:760px){
   .exam{grid-template-columns:1fr}
   .exam .passage{border-right:0;border-bottom:2px solid var(--ink);max-height:none}
@@ -271,6 +289,13 @@ main.wrap{padding-bottom:40px!important}
   .item .meta{grid-column:2/3}
   .notice .next{display:none}
   .bar{grid-template-columns:64px 1fr 56px}
+}
+@media print{
+  .notice,nav.tabs,.navbtns,#authBox,.store-chip,.toast,.ring,.vbanner,.modal,body::before{display:none!important}
+  body{background:#fff;color:#000}
+  .panel,.tile{box-shadow:none;break-inside:avoid}
+  .btn,.seg,.drop,.add-row,form{display:none!important}
+  .notice{position:static}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -288,13 +313,22 @@ main.wrap{padding-bottom:40px!important}
 <header class="top">
   <div class="wrap">
     <div class="brand"><h1>무조건 <b>오르는</b> 루틴</h1><small id="tagline">오늘을 버티는 힘이 내일의 삶의 질을 좌우한다</small></div>
-    <div class="row"><span class="store-chip" id="storeChip">불러오는 중…</span><span class="row" id="authBox"></span></div>
+    <div class="stack" style="gap:6px;align-items:flex-end">
+      <div class="row"><span class="store-chip" id="storeChip">불러오는 중…</span><span class="row" id="authBox"></span></div>
+      <div class="row navbtns" role="group" aria-label="페이지 이동">
+        <button class="btn sm" data-act="nav-back" title="이전 화면으로">◀ 되돌아가기</button>
+        <button class="btn sm" data-act="nav-home" title="오늘 화면으로">홈으로 가기</button>
+        <button class="btn sm" data-act="nav-fwd" title="다음 화면으로">앞으로가기 ▶</button>
+        <button class="btn sm" data-act="nav-print" title="지금 화면 인쇄">페이지 인쇄</button>
+      </div>
+    </div>
   </div>
 </header>
 <nav class="tabs" aria-label="메뉴">
   <div class="wrap" id="tabs">
     <button data-tab="home">오늘</button>
     <button data-tab="planner">학습 플래너</button>
+    <button data-tab="schedule">시험·일정</button>
     <button data-tab="timer">타이머·알람</button>
     <button data-tab="notes">오답노트</button>
     <button data-tab="grades">성적</button>
@@ -407,7 +441,7 @@ const EX = {
 };
 
 /* ========== 상태 ========== */
-const KINDS = ['grades', 'plans', 'exams', 'sessions', 'notes', 'vault', 'logs', 'alarms'];
+const KINDS = ['grades', 'plans', 'exams', 'sessions', 'notes', 'vault', 'logs', 'alarms', 'events', 'schoolExams'];
 const S = { settings: DEFAULT_SETTINGS() };
 KINDS.forEach(k => S[k] = []);
 const UI = { tab: 'home', gradeFilter: '전체', period: 'day', anchor: today(), timerTab: 'net', noteFilter: '전체', noteSubject: '', noteQuery: '', vaultSubject: '' };
@@ -454,20 +488,19 @@ const Files = {
   async add(file) {
     const meta = { id: uid(), name: file.name || '파일', type: guessType(file.name || '', file.type), size: file.size, added: Date.now() };
     memBlobs.set(meta.id, file); FM.set(meta.id, meta);
-    if (this.assets && ASSET_OK.test(meta.type)) { try { const r = await this.assets.upload(file); meta.asset = r.id; meta.url = r.url; return meta; } catch (e) { console.warn('asset upload', e); } }
+    if (this.assets && ASSET_OK.test(meta.type)) { try { const r = await this.assets.upload(file); meta.asset = r.id; return meta; } catch (e) { console.warn('asset upload', e); if (String(e?.message) === 'too_large') toast(`${meta.name}: 8MB가 넘어 이 기기에만 저장했어요.`, 4500); } }
     try { await Local.putBlob(meta.id, file); meta.local = true; } catch { meta.local = true; }
     return meta;
   },
   async blob(m) {
     if (memBlobs.has(m.id)) return memBlobs.get(m.id);
-    if (m.asset && this.assets?.getBlob) { try { const b = await this.assets.getBlob(m.asset); const bb = b.type ? b : new Blob([b], { type: m.type }); memBlobs.set(m.id, bb); return bb; } catch (e) { console.warn('파일 내려받기 실패 (Storage CORS 설정을 확인하세요)', e); } }
+    if (m.asset && this.assets?.getBlob) { try { const b = await this.assets.getBlob(m.asset); const bb = b.type ? b : new Blob([b], { type: m.type }); memBlobs.set(m.id, bb); return bb; } catch (e) { console.warn('파일 불러오기 실패', e); } }
     try { const b = await Local.getBlob(m.id); if (b) { memBlobs.set(m.id, b); return b; } } catch {}
     return null;
   },
   urls: new Map(),
   async url(m) {
-    if (m.url && !memBlobs.has(m.id)) return m.url;
-    if (this.urls.has(m.id)) return this.urls.get(m.id);
+        if (this.urls.has(m.id)) return this.urls.get(m.id);
     const b = await this.blob(m); if (!b) return null;
     const u = URL.createObjectURL(b); this.urls.set(m.id, u); return u;
   }
@@ -521,11 +554,12 @@ async function aiChunks(images, makePrompt) {
 
 /* ========== 화면 전환 ========== */
 const VIEWS = {};
-function go(tab) { UI.tab = tab; $$('#tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false')); render(); try { history.replaceState(null, '', '#' + tab); } catch {} window.scrollTo(0, 0); }
+function go(tab, mode = 'push') { const changed = UI.tab !== tab || mode === 'replace'; UI.tab = tab; $$('#tabs button').forEach(b => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false')); render(); try { if (mode === 'replace') history.replaceState({ tab }, '', '#' + tab); else if (mode === 'push' && changed && location.hash.slice(1) !== tab) history.pushState({ tab }, '', '#' + tab); } catch {} window.scrollTo(0, 0); }
+window.addEventListener('popstate', () => { const h = (location.hash || '').slice(1); const t = VIEWS[h] && !($('[data-tab="' + h + '"]')?.hidden) ? h : 'home'; if (!$('#modal').hidden) closeModal(); go(t, 'none'); });
 function render() { const v = $('#view'); v.innerHTML = VIEWS[UI.tab](); hydrate(v); afterRender(); tick(true); updateDday(); }
 function updateDday() {
   const t = today(); const el = $('#noticeDday'); if (!el) return;
-  const dd = [...(S.settings.ddays || []), ...S.exams.filter(x => x.date && x.date >= t).map(x => ({ label: x.title, date: x.date }))].filter(d => d.date && d.date >= t).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 2);
+  const dd = [...(S.settings.ddays || []), ...S.exams.filter(x => x.date && x.date >= t).map(x => ({ label: x.title, date: x.date })), ...S.schoolExams.filter(x => x.start && x.start >= t).map(x => ({ label: x.title || '지필평가', date: x.start })), ...S.events.filter(e => e.type === 'perf' && !e.done && e.date && e.date >= t && e.date <= addDays(t, 3)).map(e => ({ label: `${e.subject || ''} 수행`, date: e.date }))].filter(d => d.date && d.date >= t).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 2);
   el.innerHTML = dd.map(d => { const n = Math.round((parseYmd(d.date) - parseYmd(t)) / 864e5); return `<span title="${esc(d.label)} ${md(d.date)}">${esc(d.label)} <b>D${n === 0 ? '-DAY' : '-' + n}</b></span>`; }).join('');
 }
 let afterFns = [];
@@ -576,6 +610,7 @@ VIEWS.home = () => {
       <div id="homeDiff" style="margin:-4px 0 12px">${todayDiffHTML()}</div>
       ${barsHTML(todaySec, '과목별 타이머로 공부하면 여기에 쌓여요.')}
     </section>
+    <section class="panel"><h3>다가오는 일정 <button class="btn sm" data-go="schedule">달력</button></h3>${upcomingHTML()}</section>
     <section class="panel"><h3>오답 복습</h3>
       <div class="row" style="gap:18px">
         <div><div class="big-stat" style="color:var(--bad)">${weak}</div><div class="small muted">약점 문제</div></div>
@@ -1291,9 +1326,143 @@ function myProgressPanel() {
     <div class="grid g2"><div>${progBooksHTML(P, false)}</div><div style="min-width:0">${progItemsHTML(P.items || [], false, 5)}</div></div></section>`;
 }
 
+/* ========== 시험 · 일정 ========== */
+const EV_TYPES = { appt: ['약속', 'var(--blue)'], plan: ['일정', 'var(--good)'], perf: ['수행평가', 'var(--warn)'], exam: ['지필평가', 'var(--omr)'], mock: ['모의고사', 'var(--muted)'] };
+UI.schTab = UI.schTab || 'cal'; UI.calMonth = UI.calMonth || today().slice(0, 7); UI.calSel = UI.calSel || today();
+let SXE = null, EVE = null;
+function calItems(from, to) {
+  const out = [];
+  S.events.forEach(e => { if (e.date && e.date >= from && e.date <= to) out.push({ date: e.date, type: e.type || 'plan', title: (e.type === 'perf' && e.subject ? `[${e.subject}] ` : '') + e.title, time: e.time || '', memo: e.memo || '', id: e.id, done: e.done, editable: true }); });
+  S.schoolExams.forEach(x => (x.rows || []).forEach(r => { if (r.date && r.date >= from && r.date <= to) out.push({ date: r.date, type: 'exam', title: `${r.subject} 시험`, time: [r.period, r.time].filter(Boolean).join(' '), memo: r.range || '', sx: x.id }); }));
+  S.exams.forEach(x => { if (x.date && x.date >= from && x.date <= to) out.push({ date: x.date, type: 'mock', title: x.title, time: '', memo: '', mk: x.id }); });
+  return out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || '99').localeCompare(b.time || '99'));
+}
+const dLabel = d => { const n = Math.round((parseYmd(d) - parseYmd(today())) / 864e5); return n === 0 ? '오늘' : n === 1 ? '내일' : n < 0 ? `${-n}일 지남` : `D-${n}`; };
+function upcomingHTML() {
+  const t = today(); const items = calItems(t, addDays(t, 13)).filter(i => !i.done).slice(0, 8);
+  const late = S.events.filter(e => e.type === 'perf' && !e.done && e.date && e.date < t);
+  if (!items.length && !late.length) return `<div class="empty">2주 안에 잡힌 일정이 없어요.<br>시험·일정 탭에서 약속, 수행평가, 지필평가 시간표를 넣어 보세요.</div>`;
+  return `<div class="stack" style="gap:6px">${late.map(e => `<div class="evrow"><span class="badge weak">마감 지남</span><span class="evt" style="border-color:${EV_TYPES.perf[1]}">[${esc(e.subject || '')}] ${esc(e.title)}</span></div>`).join('')}${items.map(i => `<div class="evrow"><span class="badge ${dLabel(i.date) === '오늘' || dLabel(i.date) === '내일' ? 'weak' : 'wait'}">${dLabel(i.date)}</span><span class="evt" style="border-color:${EV_TYPES[i.type][1]}">${esc(i.title)}${i.time ? ` <span class="muted tiny">${esc(i.time)}</span>` : ''}</span><span class="tiny muted">${md(i.date)}</span></div>`).join('')}</div>`;
+}
+VIEWS.schedule = () => {
+  const tabs = [['cal', '달력'], ['exam', '지필평가'], ['perf', '수행평가']];
+  return `<div class="section-head"><div><div class="eyebrow">시험 · 일정</div><h2>${{ cal: '달력', exam: '지필평가 시간표 · 시험범위', perf: '수행평가 일정' }[UI.schTab]}</h2><p>${{ cal: '날짜를 누르고 약속이나 일정을 넣어요. 지필평가, 수행평가, 모의고사 날짜도 함께 보여요.', exam: '시간표와 시험범위 안내문을 올리면 AI가 글자를 정돈해 과목별로 보여 줘요. PDF·JPG·PNG·엑셀·한셀을 받아요.', perf: '과목별 수행평가 마감일과 준비할 것을 적어 둬요. 마감이 가까우면 빨갛게 표시돼요.' }[UI.schTab]}</p></div>
+  <div class="seg">${tabs.map(([k, l]) => `<button data-act="sch-tab" data-v="${k}" aria-pressed="${UI.schTab === k}">${l}</button>`).join('')}</div></div>${SCHV[UI.schTab]()}`;
+};
+const SCHV = {};
+SCHV.cal = () => {
+  const ym = UI.calMonth; const first = ym + '-01'; const fd = parseYmd(first); const dim = lastDay(fd.getFullYear(), fd.getMonth());
+  const lead = (fd.getDay() + 6) % 7; const start = addDays(first, -lead); const weeks = Math.ceil((lead + dim) / 7); const end = addDays(start, weeks * 7 - 1);
+  const items = calItems(start, end); const by = {}; items.forEach(i => (by[i.date] ||= []).push(i));
+  const t = today(); const sel = UI.calSel; const selItems = by[sel] || calItems(sel, sel);
+  let cells = '';
+  for (let k = 0; k < weeks * 7; k++) {
+    const d = addDays(start, k); const day = parseYmd(d); const list = by[d] || [];
+    cells += `<button class="c ${d.slice(0, 7) !== ym ? 'out' : ''} ${d === t ? 'today' : ''} ${d === sel ? 'sel' : ''} ${day.getDay() === 0 ? 'sun' : day.getDay() === 6 ? 'sat' : ''}" data-act="cal-day" data-d="${d}" aria-label="${mdw(d)} 일정 ${list.length}개"><span class="n">${day.getDate()}</span>${list.slice(0, 3).map(i => `<span class="ev ${i.done ? 'done' : ''}" style="border-color:${EV_TYPES[i.type][1]}">${esc(i.title)}</span>`).join('')}${list.length > 3 ? `<span class="tiny muted">+${list.length - 3}</span>` : ''}</button>`;
+  }
+  return `<div class="grid calgrid">
+  <section class="panel" id="calPanel">
+    <div class="row between" style="margin-bottom:10px"><div class="plan-nav"><button class="btn sm" data-act="cal-nav" data-d="-1" aria-label="이전 달">◀</button><h3>${fd.getFullYear()}년 ${fd.getMonth() + 1}월</h3><button class="btn sm" data-act="cal-nav" data-d="1" aria-label="다음 달">▶</button><button class="btn sm ghost" data-act="cal-today">오늘</button></div>
+      <div class="legend">${Object.values(EV_TYPES).map(([l, c]) => `<span><i class="dot" style="background:${c}"></i>${l}</span>`).join('')}</div></div>
+    <div class="cal-head">${['월', '화', '수', '목', '금', '토', '일'].map(w => `<span>${w}</span>`).join('')}</div>
+    <div class="cal">${cells}</div>
+  </section>
+  <section class="panel"><h3>${mdw(sel)} <span class="badge ${sel === t ? 'weak' : 'ex'}">${dLabel(sel)}</span></h3>
+    ${selItems.length ? `<div class="stack" style="gap:8px">${selItems.map(i => `<div class="evrow" style="align-items:flex-start"><span class="evt" style="border-color:${EV_TYPES[i.type][1]};flex:1;min-width:0"><span class="tiny muted">${EV_TYPES[i.type][0]}${i.time ? ' · ' + esc(i.time) : ''}</span><br><b class="${i.done ? 'muted' : ''}" style="${i.done ? 'text-decoration:line-through' : ''}">${esc(i.title)}</b>${i.memo ? `<div class="small muted" style="white-space:pre-wrap">${esc(i.memo)}</div>` : ''}</span>${i.editable ? `<button class="btn sm" data-act="ev-edit" data-id="${i.id}">수정</button>` : `<button class="btn sm ghost" data-act="sch-tab" data-v="${i.type === 'exam' ? 'exam' : 'cal'}" ${i.type === 'mock' ? 'data-go="timer" data-sub="mock"' : ''}>보기</button>`}</div>`).join('')}</div>` : '<div class="empty">이날은 일정이 없어요.</div>'}
+    <hr class="rule"><b class="small">이날에 추가</b>
+    <form id="evForm" class="stack" style="margin-top:8px">
+      <div class="fields"><label class="f"><span>종류</span><select id="ev-type"><option value="appt">약속</option><option value="plan">일정</option><option value="perf">수행평가</option></select></label><label class="f"><span>시간</span><input type="time" id="ev-time"></label></div>
+      <label class="f"><span>내용</span><input type="text" id="ev-title" placeholder="예: 학원 상담, 친구 생일, 병원" required></label>
+      <label class="f"><span>메모</span><input type="text" id="ev-memo" placeholder="장소, 준비물 등"></label>
+      <button class="btn primary">추가</button>
+    </form></section></div>`;
+};
+SCHV.exam = () => {
+  const list = S.schoolExams.slice().sort((a, b) => (b.start || '').localeCompare(a.start || ''));
+  return `<label class="drop" style="margin-bottom:16px"><input type="file" id="schFile" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.cell,.csv,image/*,application/pdf">
+    <strong>시험 시간표 · 시험범위 올리기</strong><span class="small muted">시간표와 범위가 따로 있으면 한 번에 같이 고르세요. 과목별로 짝지어 정리해요.</span><div id="schBusy" style="margin-top:8px"></div></label>
+  <div class="row" style="margin-bottom:16px"><button class="btn sm" data-act="sx-manual">직접 입력</button>${(S.settings.me || {}).grade ? `<span class="small muted">${esc(S.settings.me.grade)}학년 기준으로 읽어요. (과목·목표 탭 내 정보)</span>` : '<span class="small muted">과목·목표 탭의 내 정보에 학년을 적으면 내 학년 시험만 골라 읽어요.</span>'}</div>
+  ${list.map(x => { const dates = [...new Set((x.rows || []).map(r => r.date || ''))].sort((a, b) => (a || '9').localeCompare(b || '9')); return `<section class="panel" style="margin-bottom:16px"><h3><span style="min-width:0">${esc(x.title || '지필평가')}</span><span class="row">${x.start && x.start >= today() ? `<span class="badge weak">${dLabel(x.start)}</span>` : ''}<span class="chip">${x.start ? md(x.start) : ''}${x.end && x.end !== x.start ? ' – ' + md(x.end) : ''}</span></span></h3>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th>날짜</th><th>교시</th><th>시간</th><th>과목</th><th style="text-align:left">시험 범위</th></tr></thead><tbody>
+    ${dates.map(d => { const rs = x.rows.filter(r => (r.date || '') === d).sort((a, b) => (a.period || '').localeCompare(b.period || '')); return rs.map((r, k) => `<tr>${k === 0 ? `<td rowspan="${rs.length}" style="vertical-align:top"><b>${d ? mdw(d) : '날짜 미정'}</b></td>` : ''}<td style="vertical-align:top">${esc(r.period || '–')}</td><td style="vertical-align:top">${esc(r.time || '–')}</td><td style="vertical-align:top"><i class="dot" style="background:${subjColor(r.subject)}"></i> <b>${esc(r.subject)}</b></td><td class="range">${esc(r.range || '–')}</td></tr>`).join(''); }).join('')}
+    </tbody></table></div>
+    ${x.notes ? `<div class="explain" style="margin-top:12px"><b class="small">기타 안내</b>\n${esc(x.notes)}</div>` : ''}
+    <div class="row between" style="margin-top:10px"><div class="thumbs">${(x.files || []).map(m => thumbHTML(m)).join('')}</div><div class="row"><button class="btn sm" data-act="sx-edit" data-id="${x.id}">수정</button><button class="btn sm ghost danger" data-act="sx-del" data-id="${x.id}">삭제</button></div></div></section>`; }).join('') || '<div class="empty"><b>등록된 지필평가가 없어요.</b><br>학교에서 받은 시험 시간표와 시험범위 안내문을 올려 보세요. 날짜는 달력과 맨 위 D-day에도 표시돼요.</div>'}`;
+};
+SCHV.perf = () => {
+  const t = today(); const all = S.events.filter(e => e.type === 'perf');
+  const open = all.filter(e => !e.done).sort((a, b) => (a.date || '9').localeCompare(b.date || '9')); const done = all.filter(e => e.done).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const row = e => { const n = e.date ? Math.round((parseYmd(e.date) - parseYmd(t)) / 864e5) : null; return `<div class="item ${e.done ? 'done' : ''}"><input type="checkbox" data-act="ev-done" data-id="${e.id}" ${e.done ? 'checked' : ''} aria-label="완료"><span class="chipcell">${subjChip(e.subject)}</span><span class="txt"><b>${esc(e.title)}</b>${e.memo ? `<div class="small muted" style="white-space:pre-wrap">${esc(e.memo)}</div>` : ''}</span><span class="meta">${e.date ? md(e.date) : '마감 미정'}${e.time ? ' ' + e.time : ''} ${!e.done && n != null ? `<span class="badge ${n < 0 ? 'weak' : n <= 3 ? 'weak' : n <= 7 ? 'wait' : 'ex'}">${n < 0 ? '지남' : n === 0 ? '오늘' : 'D-' + n}</span>` : ''}</span><button class="btn sm ghost" data-act="ev-edit" data-id="${e.id}">수정</button></div>`; };
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));align-items:start">
+  <section class="panel"><h3>수행평가 목록 <span class="muted small num">남은 것 ${open.length}개</span></h3>
+    ${open.length ? `<div class="items">${open.map(row).join('')}</div>` : '<div class="empty">남은 수행평가가 없어요.</div>'}
+    ${done.length ? `<details style="margin-top:12px"><summary class="small muted">끝낸 수행평가 ${done.length}개</summary><div class="items">${done.map(row).join('')}</div></details>` : ''}</section>
+  <section class="panel"><h3>수행평가 추가</h3>
+    <form id="perfForm" class="stack">
+      <div class="fields"><label class="f"><span>과목</span><select id="pf2-subj">${subjOpts(ls.get('lastSubj', ''))}</select></label><label class="f"><span>마감일</span><input type="date" id="pf2-date" value="${addDays(t, 7)}"></label><label class="f"><span>교시·시간</span><input type="text" id="pf2-time" placeholder="예: 3교시"></label></div>
+      <label class="f"><span>제목</span><input type="text" id="pf2-title" placeholder="예: 독서 감상문 발표, 영어 에세이 쓰기" required></label>
+      <label class="f"><span>방식 · 준비물 · 배점</span><textarea id="pf2-memo" rows="3" placeholder="예: A4 1장, 발표 3분, 배점 20점, 태블릿 지참"></textarea></label>
+      <button class="btn primary">추가</button>
+    </form></section></div>`;
+};
+function drawSxEditor() {
+  if (!SXE.rows.length) SXE.rows = [{ date: '', period: '', time: '', subject: '', range: '' }];
+  openModal(`<div class="sheet wide"><div class="sheet-head"><h3>지필평가 확인</h3><button class="btn ghost" data-act="close">닫기</button></div><div class="sheet-body">
+    <p class="small muted" style="margin:0">읽어 온 내용이 맞는지 확인하고 틀린 칸은 고쳐 주세요.</p>
+    <label class="f"><span>시험 이름</span><input type="text" data-sx="title" value="${esc(SXE.title)}" placeholder="예: 2학년 2학기 기말고사"></label>
+    <div class="tbl-wrap"><table class="t"><thead><tr><th>날짜</th><th>교시</th><th>시간</th><th>과목</th><th>시험 범위</th><th></th></tr></thead><tbody>${SXE.rows.map((r, i) => `<tr><td><input type="date" data-sx="rows.${i}.date" value="${esc(r.date)}"></td><td><input type="text" data-sx="rows.${i}.period" value="${esc(r.period)}" style="width:70px"></td><td><input type="text" data-sx="rows.${i}.time" value="${esc(r.time)}" style="width:110px"></td><td><input type="text" data-sx="rows.${i}.subject" value="${esc(r.subject)}" list="subjList2" style="text-align:left;width:110px"></td><td style="min-width:260px"><textarea data-sx="rows.${i}.range" rows="3" style="min-height:60px">${esc(r.range)}</textarea></td><td><button class="btn sm ghost" data-act="sx-delrow" data-i="${i}" aria-label="행 삭제">✕</button></td></tr>`).join('')}</tbody></table></div>
+    <datalist id="subjList2">${subjects().map(s => `<option value="${esc(s.name)}">`).join('')}</datalist>
+    <div class="row"><button class="btn sm" data-act="sx-addrow">과목 추가</button><div class="thumbs">${(SXE.files || []).map(m => thumbHTML(m)).join('')}</div></div>
+    <label class="f"><span>기타 안내 (준비물, 유의사항)</span><textarea data-sx="notes" rows="3">${esc(SXE.notes)}</textarea></label>
+  </div><div class="sheet-foot"><button class="btn primary" data-act="sx-save">저장</button></div></div>`);
+}
+function drawEvEditor() {
+  openModal(`<div class="sheet"><div class="sheet-head"><h3>일정 수정</h3><button class="btn ghost" data-act="close">닫기</button></div><div class="sheet-body">
+    <div class="fields"><label class="f"><span>종류</span><select data-ev="type">${['appt', 'plan', 'perf'].map(k => `<option value="${k}" ${EVE.type === k ? 'selected' : ''}>${EV_TYPES[k][0]}</option>`).join('')}</select></label>
+    ${EVE.type === 'perf' ? `<label class="f"><span>과목</span><select data-ev="subject">${subjOpts(EVE.subject)}</select></label>` : ''}
+    <label class="f"><span>날짜</span><input type="date" data-ev="date" value="${esc(EVE.date)}"></label><label class="f"><span>시간</span><input type="text" data-ev="time" value="${esc(EVE.time)}" placeholder="15:00"></label></div>
+    <label class="f"><span>내용</span><input type="text" data-ev="title" value="${esc(EVE.title)}"></label>
+    <label class="f"><span>메모</span><textarea data-ev="memo" rows="3">${esc(EVE.memo)}</textarea></label>
+  </div><div class="sheet-foot"><button class="btn ghost danger" data-act="ev-del" style="margin-right:auto">${EVE._sure ? '한 번 더 누르면 삭제' : '삭제'}</button><button class="btn primary" data-act="ev-save">저장</button></div></div>`);
+}
+const normSubj = s => String(s || '').replace(/\s+/g, '').replace(/[ⅠⅡ]/g, m => m === 'Ⅰ' ? '1' : '2').toLowerCase();
+function mergeSxRows(rows) {
+  const out = [];
+  rows.forEach(r => {
+    r = { date: r.date || '', period: r.period || '', time: r.time || '', subject: String(r.subject || '').trim(), range: String(r.range || '').trim() };
+    if (!r.subject) return;
+    const m = out.find(o => normSubj(o.subject) === normSubj(r.subject) && (!o.date || !r.date || o.date === r.date));
+    if (m) { ['date', 'period', 'time'].forEach(k => { if (!m[k] && r[k]) m[k] = r[k]; }); if (r.range && !m.range.includes(r.range)) m.range = m.range ? m.range + '\n' + r.range : r.range; }
+    else out.push(r);
+  });
+  return out.sort((a, b) => (a.date || '9').localeCompare(b.date || '9') || a.period.localeCompare(b.period));
+}
+const SX_PROMPT = sheet => { const g = (S.settings.me || {}).grade; return `너는 한국 고등학교 지필평가(중간·기말고사) 안내문 정리 도우미다. ${sheet ? '아래는 엑셀/한셀 안내문을 CSV로 바꾼 내용이다.' : '첨부 이미지는 시험 시간표와 시험범위 안내문(여러 쪽일 수 있음)이다.'}
+내용을 정리해 JSON 하나만 반환해:
+{"title":"예: 2026학년도 2학기 2학년 기말고사","rows":[{"date":"YYYY-MM-DD","period":"1교시","time":"09:00~09:50","subject":"과목명","range":"시험 범위"}],"notes":"준비물·유의사항 등 기타 안내"}
+규칙:
+- 시간표와 시험범위가 다른 표나 다른 쪽에 있으면 과목명으로 짝지어 한 행에 합쳐라.
+- 시험 범위는 읽기 쉽게 정돈하되 내용은 바꾸지 마라. 교재·단원·쪽수·학습지마다 줄을 바꾸고(\\n), 불필요한 기호와 중복을 지워라.
+- 날짜에 연도가 없으면 ${new Date().getFullYear()}년으로 하라. 시험 날짜를 알 수 없는 과목은 date를 빈 문자열로 둬라.
+- ${g ? `학생은 ${g}학년이다. 여러 학년이 섞여 있으면 ${g}학년 것만 넣어라.` : '여러 학년이 섞여 있으면 subject 앞에 [1학년]처럼 학년을 붙여라.'}
+- 값이 없으면 빈 문자열. 글자를 지어내지 마라.${sheet ? '\n\n' + sheet : ''}`; };
+async function handleSxFiles(files) {
+  const busy = $('#schBusy'); if (busy) busy.innerHTML = '<span class="busy">파일을 저장하고 시간표·시험범위를 읽는 중… 쪽수가 많으면 1분쯤 걸려요.</span>';
+  const metas = []; for (const f of files) metas.push(await Files.add(f));
+  const res = [];
+  try {
+    for (const m of metas.filter(isSheet)) { let txt; try { txt = await sheetText(await Files.blob(m)); } catch { toast(`${m.name}: 파일을 열지 못했어요. xlsx로 저장해 다시 올려 주세요.`, 5000); continue; } res.push(await ai(SX_PROMPT(txt))); }
+    const pics = metas.filter(m => !isSheet(m));
+    if (pics.length) { const imgs = await metasToImages(pics); res.push(...await aiChunks(imgs, i => SX_PROMPT('') + (i ? '\n(앞쪽에 이어지는 다음 쪽이다.)' : ''))); }
+  } catch (e) { toast(aiError(e), 5000); }
+  if (busy) busy.innerHTML = '';
+  SXE = { id: uid(), title: res.find(r => r?.title)?.title || '', rows: mergeSxRows(res.flatMap(r => r?.rows || [])), notes: res.map(r => r?.notes).filter(Boolean).join('\n'), files: metas, _new: true };
+  drawSxEditor();
+}
+
 /* ========== 모달 ========== */
 function openModal(html) { const m = $('#modal'); m.innerHTML = html; m.hidden = false; document.body.style.overflow = 'hidden'; hydrate(m); }
-function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; document.body.style.overflow = ''; GE = null; NE = null; VE = null; RT = null; SE = null; }
+function closeModal() { const m = $('#modal'); m.hidden = true; m.innerHTML = ''; document.body.style.overflow = ''; GE = null; NE = null; VE = null; RT = null; SE = null; SXE = null; EVE = null; }
 $('#modal').addEventListener('mousedown', e => { if (e.target.id === 'modal' && !NE && !RT && !GE && !VE && !SE) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden && !NE) closeModal(); });
 
@@ -1315,8 +1484,12 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act, id = b.dataset.id;
   switch (a) {
+    case 'nav-back': history.back(); break;
+    case 'nav-fwd': history.forward(); break;
+    case 'nav-home': if (VIEW.sid) exitView(); closeModal(); go('home'); break;
+    case 'nav-print': window.print(); break;
     case 'close': closeModal(); if (UI.tab !== 'timer') render(); break;
-    case 'view-file': { const m = FM.get(b.dataset.fid); if (m && !NE && !GE && !VE && !RT && !SE) viewFile(m); else if (m) { const w = await Files.url(m); if (w && isImg(m)) { const tmp = document.createElement('a'); tmp.href = w; tmp.target = '_blank'; tmp.rel = 'noopener'; tmp.click(); } } break; }
+    case 'view-file': { const m = FM.get(b.dataset.fid); if (m && !NE && !GE && !VE && !RT && !SE && !SXE) viewFile(m); else if (m) { const w = await Files.url(m); if (w && isImg(m)) { const tmp = document.createElement('a'); tmp.href = w; tmp.target = '_blank'; tmp.rel = 'noopener'; tmp.click(); } } break; }
     /* 성적 */
     case 'gfilter': UI.gradeFilter = b.dataset.v; render(); break;
     case 'grade-manual': openGradeEditor([{ id: uid(), type: '모의고사', title: '', date: today(), year: '', semester: '', rows: subjects().slice(0, 6).map(s => ({ subject: s.name })), files: [] }], 0); break;
@@ -1412,6 +1585,20 @@ document.addEventListener('click', async e => {
     case 'dd-add': S.settings.ddays.push({ label: '', date: today() }); saveSettings(); render(); break;
     case 'dd-del': S.settings.ddays.splice(+b.dataset.i, 1); saveSettings(); render(); break;
     case 'export': exportData(); break;
+    /* 시험·일정 */
+    case 'sch-tab': UI.schTab = b.dataset.v; render(); break;
+    case 'cal-nav': { const d = parseYmd(UI.calMonth + '-01'); d.setMonth(d.getMonth() + +b.dataset.d); UI.calMonth = ymd(d).slice(0, 7); render(); break; }
+    case 'cal-today': UI.calMonth = today().slice(0, 7); UI.calSel = today(); render(); break;
+    case 'cal-day': UI.calSel = b.dataset.d; if (b.dataset.d.slice(0, 7) !== UI.calMonth) UI.calMonth = b.dataset.d.slice(0, 7); render(); break;
+    case 'ev-edit': { const e0 = S.events.find(x => x.id === id); if (e0) { EVE = clone(e0); drawEvEditor(); } break; }
+    case 'ev-save': { if (!String(EVE.title || '').trim()) { toast('내용을 적어 주세요.'); break; } delete EVE._sure; save('events', EVE); closeModal(); render(); toast('일정을 저장했어요.'); break; }
+    case 'ev-del': if (EVE._sure) { remove('events', EVE.id); closeModal(); render(); } else { EVE._sure = true; drawEvEditor(); } break;
+    case 'sx-manual': SXE = { id: uid(), title: '', rows: subjects().slice(0, 6).map(s => ({ date: '', period: '', time: '', subject: s.name, range: '' })), notes: '', files: [], _new: true }; drawSxEditor(); break;
+    case 'sx-edit': { const x = S.schoolExams.find(y => y.id === id); if (x) { SXE = clone(x); drawSxEditor(); } break; }
+    case 'sx-del': if (b.dataset.sure) { remove('schoolExams', id); render(); } else { b.dataset.sure = 1; b.textContent = '한 번 더 누르면 삭제'; } break;
+    case 'sx-addrow': SXE.rows.push({ date: SXE.rows.at(-1)?.date || '', period: '', time: '', subject: '', range: '' }); drawSxEditor(); break;
+    case 'sx-delrow': SXE.rows.splice(+b.dataset.i, 1); drawSxEditor(); break;
+    case 'sx-save': { SXE.rows = SXE.rows.filter(r => String(r.subject || '').trim()); if (!SXE.rows.length) { toast('과목을 하나 이상 입력해 주세요.'); break; } const ds = SXE.rows.map(r => r.date).filter(Boolean).sort(); SXE.start = ds[0] || ''; SXE.end = ds.at(-1) || ''; if (!SXE.title) SXE.title = '지필평가'; delete SXE._new; save('schoolExams', SXE); closeModal(); UI.schTab = 'exam'; render(); toast('지필평가를 저장했어요. 달력과 D-day에도 표시돼요.'); break; }
     case 'np-fill': { const m = netPlanMin(1); S.settings.netPlan = { ...(S.settings.netPlan || {}), 2: m, 3: m, 4: m, 5: m }; saveSettings(); render(); break; }
     /* 관리자 */
     case 'adm-refresh': ADM.loaded = false; ADM.data = {}; render(); break;
@@ -1428,6 +1615,9 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', async e => {
   const t = e.target;
   if (t.matches('[data-act="item-done"]')) { const pl = S.plans.find(p => p.id === t.dataset.plan); const it = pl?.items.find(i => i.id === t.dataset.id); if (it) { it.done = t.checked; save('plans', pl); render(); } return; }
+  if (t.matches('[data-act="ev-done"]')) { const e0 = S.events.find(x => x.id === t.dataset.id); if (e0) { e0.done = t.checked; save('events', e0); render(); } return; }
+  if (t.id === 'schFile' && t.files.length) { handleSxFiles([...t.files]); t.value = ''; return; }
+  if (t.dataset.ev && EVE) { EVE[t.dataset.ev] = t.value; if (t.dataset.ev === 'type') drawEvEditor(); return; }
   if (t.id === 'gradeFile' && t.files.length) { handleGradeFiles([...t.files]); t.value = ''; return; }
   if (t.dataset.g && GE) { GE.list[GE.idx][t.dataset.g] = t.value; if (t.dataset.g === 'type') drawGradeEditor(); return; }
   if (t.id === 'planGoal') { const pl = ensurePlan(UI.period, UI.anchor); pl.goal = t.value; save('plans', pl); return; }
@@ -1453,6 +1643,8 @@ document.addEventListener('input', e => {
   if (t.dataset.r && GE) { const [i, k] = t.dataset.r.split('.'); GE.list[GE.idx].rows[+i][k] = t.value; return; }
   if (t.dataset.g && GE && t.dataset.g !== 'type') { GE.list[GE.idx][t.dataset.g] = t.value; return; }
   if (t.dataset.k && NE) { setPath(NE, t.dataset.k, t.value); return; }
+  if (t.dataset.sx && SXE) { setPath(SXE, t.dataset.sx, t.value); return; }
+  if (t.dataset.ev && EVE && t.dataset.ev !== 'type') { EVE[t.dataset.ev] = t.value; return; }
   if (t.dataset.v && VE && t.closest('#ve')) { VE[t.dataset.v] = t.value; return; }
   if (t.id === 'nQuery') { UI.noteQuery = t.value; clearTimeout(window.__nq); window.__nq = setTimeout(() => { render(); const q = $('#nQuery'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }, 350); return; }
   if (t.id === 'rtAns' && RT) { RT.pick = t.value; return; }
@@ -1470,6 +1662,8 @@ document.addEventListener('submit', e => {
     catch (err) { console.warn(err); toast('진도를 저장하지 못했어요. 권한을 확인해 주세요.'); }
     render(); })(); return; }
   if (e.target.id === 'bookForm') { const P = ADM.prog[ADM.sel]; const b = { id: uid(), subject: $('#bf-subj').value, title: $('#bf-title').value.trim(), total: +$('#bf-total').value || 0, unit: $('#bf-unit').value, done: 0 }; if (!b.title || !b.total) return; P.books.push(b); ADM.pfSubj = b.subject; progRef(ADM.sel).set({ books: P.books }).then(() => toast('교재를 등록했어요.')).catch(() => toast('저장하지 못했어요.')); render(); return; }
+  if (e.target.id === 'evForm') { const title = $('#ev-title').value.trim(); if (!title) return; save('events', { id: uid(), type: $('#ev-type').value, title, date: UI.calSel, time: $('#ev-time').value, memo: $('#ev-memo').value.trim(), subject: $('#ev-type').value === 'perf' ? (ls.get('lastSubj', '') || '') : '', done: false }); render(); toast(`${md(UI.calSel)}에 추가했어요.`); return; }
+  if (e.target.id === 'perfForm') { const title = $('#pf2-title').value.trim(); if (!title) return; const subj = $('#pf2-subj').value; ls.set('lastSubj', subj); save('events', { id: uid(), type: 'perf', subject: subj, title, date: $('#pf2-date').value, time: $('#pf2-time').value.trim(), memo: $('#pf2-memo').value.trim(), done: false }); render(); toast('수행평가를 추가했어요.'); return; }
   if (e.target.id === 'alarmForm') { const time = $('#alTime').value; if (!time) return; save('alarms', { id: uid(), time, label: $('#alLabel').value.trim(), days: $$('input[name=alDay]:checked').map(x => +x.value), on: true }); render(); }
 });
 ['dragover', 'dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => {
@@ -1598,9 +1792,9 @@ async function loadAll(src) { const out = {}; for (const k of KINDS) out[k] = aw
 function apply(d) { KINDS.forEach(k => S[k] = d[k] || []); S.settings = d.settings ? { ...DEFAULT_SETTINGS(), ...d.settings } : DEFAULT_SETTINGS(); }
 function setChip() { const c = $('#storeChip'); c.textContent = Store.mode === 'cloud' ? '계정에 저장 중' : '이 기기에 저장 중'; c.classList.toggle('cloud', Store.mode === 'cloud'); const si = $('#storeInfo'); if (si) si.textContent = storeInfo(); }
 async function boot() {
-  const h = (location.hash || '').slice(1); if (VIEWS[h]) UI.tab = h;
+  const h = (location.hash || '').slice(1); if (VIEWS[h] && h !== 'admin') UI.tab = h;
   const ok = await Local.open(); if (ok) apply(await loadAll(Local));
-  Store.mode = 'local'; setChip(); go(UI.tab);
+  Store.mode = 'local'; setChip(); go(UI.tab, 'replace');
   if (!window.claude?.use) return;
   try {
     const [db, user, assets] = await Promise.all([window.claude.use('db'), window.claude.use('user'), window.claude.use('assets')]);
